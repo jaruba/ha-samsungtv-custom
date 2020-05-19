@@ -288,16 +288,27 @@ class SamsungTVDevice(MediaPlayerDevice):
                     ping_url,
                     timeout=UPDATE_PING_TIMEOUT
                 )
+
+                self._muted = self._upnp.get_mute()
+                self._volume = int(self._upnp.get_volume()) / 100
+                if self._app_list is None:
+                    self._gen_installed_app_list()
+
                 self._state = STATE_ON
             except:
                 self._state = STATE_OFF
 
         # WS ping
         else:
-            self.send_command("KEY", "send_key", 1, 0)
+            self.send_command("KEY", "send_key", 1, 0)            
+            
+            self._muted = self._upnp.get_mute()
+            self._volume = int(self._upnp.get_volume()) / 100
+            if self._app_list is None:
+                self._gen_installed_app_list()
+
 
     def _get_running_app(self):
-
         if self._app_list is not None:
 
             if hasattr(self, '_cloud_state') and self._cloud_channel_name != "":
@@ -315,7 +326,7 @@ class SamsungTVDevice(MediaPlayerDevice):
                         r = requests.get('http://{host}:8001/api/v2/applications/{value}'.format(host=self._host, value=self._app_list[app]), timeout=0.5)
                     except requests.exceptions.RequestException as e:
                         pass
-
+                  
                     if r is not None:
                         data = r.text
                         if data is not None:
@@ -324,16 +335,20 @@ class SamsungTVDevice(MediaPlayerDevice):
                                 if root['visible']:
                                     self._running_app = app
                                     return
-
         self._running_app = 'TV/HDMI'
+
 
     def _gen_installed_app_list(self):
 
-        if self._state == STATE_OFF:
-            _LOGGER.info("Samsung TV is OFF, _gen_installed_app_list not executed")
-            self._app_list = {}
-            self._app_list_ST = {}
+        if self._app_list is not None:
+            _LOGGER.debug("Manual set applist or already got, _gen_installed_app_list not executed")
+            return
 
+        if self._state == STATE_OFF or self._state == None:
+            _LOGGER.debug("Samsung TV is OFF / No defined State, _gen_installed_app_list not executed....")
+            return 
+        
+        _LOGGER.debug("Samsung TV , _gen_installed_app_list executed......")
         app_list = self._ws.app_list()
 
         # app_list is a list of dict
@@ -367,7 +382,6 @@ class SamsungTVDevice(MediaPlayerDevice):
                     self._source = None
                 else:
                     if self._running_app == "TV/HDMI":
-
                         cloud_key = ""
                         if self._cloud_source in ["digitalTv", "TV"]:
                             cloud_key = "ST_TV"
@@ -522,7 +536,6 @@ class SamsungTVDevice(MediaPlayerDevice):
     @property
     def is_volume_muted(self):
         """Boolean if volume is currently muted."""
-        self._muted = self._upnp.get_mute()
         return self._muted
 
     @property
@@ -536,14 +549,14 @@ class SamsungTVDevice(MediaPlayerDevice):
 
         source_list = []
         source_list.extend(list(self._source_list))
-        source_list.extend(list(self._app_list))
+        if self._app_list is not None:
+            source_list.extend(list(self._app_list))
 
         return source_list
 
     @property
     def volume_level(self):
         """Volume level of the media player (0..1)."""
-        self._volume = int(self._upnp.get_volume()) / 100
         return self._volume
     
     @property
@@ -709,6 +722,7 @@ class SamsungTVDevice(MediaPlayerDevice):
 
     async def async_select_source(self, source):
         """Select input source."""
+        _LOGGER.debug('SamsungTV Trying source:%s',source)
         if source in self._source_list:
             source_key = self._source_list[ source ]
             if "+" in source_key:
