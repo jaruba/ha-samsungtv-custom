@@ -1,13 +1,18 @@
-from datetime import timedelta, datetime
-from enum import Enum
+
 import aiohttp
 import aiofiles
-import os
-import traceback
+import asyncio
 import json
-import numpy as np
 import logging
+import numpy as np
+import os
+import re
+import traceback
+
+from datetime import timedelta, datetime
+from enum import Enum
 from typing import Optional
+
 
 # Logo feature constants
 class LogoOption(Enum):
@@ -31,11 +36,11 @@ LOGO_OPTIONS_MAPPING = {
 }
 LOGO_OPTION_DEFAULT = [LogoOption.WhiteColor.value, "fff-color"]
 LOGO_BASE_URL = "https://jaruba.github.io/channel-logos/"
-LOGO_FILE_PATH = "/logo_paths.json"
-LOGO_FILE_DOWNLOAD_PATH = "/logo_paths_download.json"
+LOGO_FILE = "logo_paths.json"
+LOGO_FILE_DOWNLOAD = "logo_paths_download.json"
 LOGO_FILE_DAYS_BEFORE_UPDATE = 1
 LOGO_MIN_SCORE_REQUIRED = 80
-LOGO_MEDIATITLE_KEYWORD_REMOVAL = ["HD"]
+LOGO_MEDIATITLE_KEYWORD_REMOVAL = ["HDTV", "HD"]
 LOGO_MAX_PATHS = 30000
 
 _LOGGER = logging.getLogger(__name__)
@@ -45,7 +50,10 @@ class Logo:
     """ Class that fetches logos for Samsung TV Tizen. Works with https://github.com/jaruba/channel-logos. """
 
     def __init__(
-        self, logo_option: int, session: Optional[aiohttp.ClientSession] = None
+        self,
+        logo_option: int,
+        logo_file_download: str = None,
+        session: Optional[aiohttp.ClientSession] = None,
     ):
         self._media_image_base_url = None
         self._logo_option = None
@@ -57,11 +65,11 @@ class Logo:
 
         self._last_check = None
 
-        self._logo_file_path = (
-            os.path.dirname(os.path.realpath(__file__)) + LOGO_FILE_PATH
-        )
+        app_path = os.path.dirname(os.path.realpath(__file__))
+        self._logo_file_path = os.path.join(app_path, LOGO_FILE)
         self._logo_file_download_path = (
-            os.path.dirname(os.path.realpath(__file__)) + LOGO_FILE_DOWNLOAD_PATH
+            logo_file_download or
+            os.path.join(app_path, LOGO_FILE_DOWNLOAD)
         )
 
     def set_logo_color(self, logo_option):
@@ -93,7 +101,10 @@ class Logo:
 
     async def _async_ensure_latest_path_file(self):
         """ Does check if logo paths file exists and if it does - is it out of date or not. """
-        if self._last_check is not None and self._last_check > datetime.now().astimezone()-timedelta(days=LOGO_FILE_DAYS_BEFORE_UPDATE):
+        if (
+            self._last_check is not None and
+            self._last_check > datetime.now().astimezone()-timedelta(days=LOGO_FILE_DAYS_BEFORE_UPDATE)
+        ):
             return
         if self._media_image_base_url is not None:
             if os.path.isfile(self._logo_file_download_path):
@@ -117,7 +128,10 @@ class Logo:
                                 await self._download_latest_path_file()
                     except (aiohttp.ClientError, asyncio.TimeoutError):
                         _LOGGER.warning(
-                            "Not able to check for latest paths file for logos from %s%s. Check if the URL is accessible from this machine.",LOGO_BASE_URL,"logo_paths.json"
+                            "Not able to check for latest paths file for logos from %s%s. "
+                            "Check if the URL is accessible from this machine",
+                            LOGO_BASE_URL,
+                            "logo_paths.json",
                         )
             else:
                 self._last_check = datetime.now().astimezone()
@@ -134,18 +148,24 @@ class Logo:
                         await paths_file.write(response)
         except (aiohttp.ClientError, asyncio.TimeoutError):
             _LOGGER.warning(
-                "Not able to download latest paths file for logos from %s%s. Check if the URL is accessible from this machine.",LOGO_BASE_URL,"logo_paths.json"
+                "Not able to download latest paths file for logos from %s%s. "
+                "Check if the URL is accessible from this machine.",
+                LOGO_BASE_URL,
+                "logo_paths.json",
             )
         except PermissionError:
             _LOGGER.warning(
-                "No permission while trying to write the downloaded paths file to %s. Please check file writing permissions.", self._logo_file_download_path
+                "No permission while trying to write the downloaded paths file to %s. "
+                "Please check file writing permissions.",
+                self._logo_file_download_path,
             )
         except OSError as e:
             _LOGGER.warning(
-                "Not able to write to write the downloaded paths file to %s. Disk might be full or another OS error occurred:", self._logo_file_download_path
+                "Not able to write to write the downloaded paths file to %s. "
+                "Disk might be full or another OS error occurred",
+                self._logo_file_download_path,
             )
             _LOGGER.warning(traceback.print_exc())      
-
 
     async def async_find_match(self, media_title):
         """ Finds a match in the logo_paths file for a given media_title """
@@ -157,9 +177,19 @@ class Logo:
             return
         _LOGGER.debug("Matching media title for %s", media_title)
         await self._async_ensure_latest_path_file()
+
+        # remove string between parenthesis ()
+        removal = re.finditer(r"\((.*?)\)", media_title)
+        for match in removal:
+            media_title = media_title.replace(match.group(), "")
+
+        # remove specific strings
         for word in LOGO_MEDIATITLE_KEYWORD_REMOVAL:
             media_title = media_title.lower().replace(word.lower(), "")
+
+        # remove leading and trailing spaces
         media_title = media_title.lower().strip()
+
         try:
             if os.path.isfile(self._logo_file_download_path):
                 async with aiofiles.open(self._logo_file_download_path, "r") as f:
@@ -173,7 +203,8 @@ class Logo:
             for image_path in image_paths:
                 if paths_checked > LOGO_MAX_PATHS:
                     _LOGGER.warning(
-                        "Exceeded maximum amount of paths (%d) while searching for a match. Halting the search.", LOGO_MAX_PATHS
+                        "Exceeded maximum amount of paths (%d) while searching for a match. Halting the search.",
+                        LOGO_MAX_PATHS,
                     )
                     break
                 ratio = self._levenshtein_ratio(media_title, image_path[0].lower())
