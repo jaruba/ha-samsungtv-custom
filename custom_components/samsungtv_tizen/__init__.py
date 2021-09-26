@@ -1,4 +1,4 @@
-"""The samsungtv_smart integration."""
+"""The samsungtv_tizen integration."""
 
 import socket
 import asyncio
@@ -6,6 +6,7 @@ import logging
 import os
 from aiohttp import ClientConnectionError, ClientSession, ClientResponseError
 from async_timeout import timeout
+from shutil import copyfile
 from websocket import WebSocketException
 from .api.samsungws import SamsungTVWS
 from .api.exceptions import ConnectionFailure
@@ -15,8 +16,9 @@ import voluptuous as vol
 import homeassistant.helpers.config_validation as cv
 
 from homeassistant.components.media_player.const import DOMAIN as MP_DOMAIN
-from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.typing import HomeAssistantType
+from homeassistant.helpers.storage import STORAGE_DIR
 
 from homeassistant.const import (
     CONF_HOST,
@@ -113,6 +115,70 @@ def tv_url(host: str, address: str = "") -> str:
     return f"http://{host}:8001/api/v2/{address}"
 
 
+def token_file_name(hostname: str) -> str:
+    return f"{DOMAIN}_{hostname}_token"
+
+
+def get_token_file(hass, hostname, port, overwrite=False):
+    """Get token file name and try to create it if not exists."""
+    if port != 8002:
+        return None
+
+    token_file = hass.config.path(STORAGE_DIR, token_file_name(hostname))
+
+    if not os.path.isfile(token_file) or overwrite:
+        # Create token file for catch possible errors
+        try:
+            handle = open(token_file, "w+", closefd=True)
+            handle.close()
+        except OSError:
+            _LOGGER.error(
+                "Samsung TV - Error creating token file: %s", token_file
+            )
+            return None
+
+    return token_file
+
+
+def remove_token_file(hass, hostname):
+    """Try to remove token file."""
+    token_file = hass.config.path(STORAGE_DIR, token_file_name(hostname))
+
+    if os.path.isfile(token_file):
+        try:
+            os.remove(token_file)
+        except:
+            _LOGGER.error(
+                "Samsung TV - Error deleting token file: %s", token_file
+            )
+
+
+def _migrate_token_file(hass: HomeAssistantType, hostname: str):
+    """Migrate token file from old path to new one."""
+
+    token_file = hass.config.path(STORAGE_DIR, token_file_name(hostname))
+    if os.path.isfile(token_file):
+        return
+
+    old_token_file = (
+        os.path.dirname(os.path.realpath(__file__)) + f"/token-{hostname}.txt"
+    )
+
+    if os.path.isfile(old_token_file):
+        try:
+            copyfile(old_token_file, token_file)
+        except IOError:
+            _LOGGER.error("Failed migration of token file from %s to %s", old_token_file, token_file)
+            return
+
+        try:
+            os.remove(old_token_file)
+        except:
+            _LOGGER.warning("Error while deleting old token file %s", old_token_file)
+
+    return
+
+
 class SamsungTVInfo:
     def __init__(self, hass, hostname, name, ws_name=None):
         self._hass = hass
@@ -128,53 +194,35 @@ class SamsungTVInfo:
         self._token_support = False
         self._port = 0
 
-    def _gen_token_file(self, port):
-        if port != 8002:
-            return None
-
-        token_file = (
-            os.path.dirname(os.path.realpath(__file__))
-            + "/token-"
-            + self._hostname
-            + ".txt"
-        )
-
-        if os.path.isfile(token_file) is False:
-            # Create token file for catch possible errors
-            try:
-                handle = open(token_file, "w+", closefd=True)
-                handle.close()
-            except:
-                _LOGGER.error(
-                    "Samsung TV - Error creating token file: %s", token_file
-                )
-                return None
-
-        return token_file
-
     def _try_connect_ws(self):
         """Try to connect to device using web sockets on port 8001 and 8002"""
 
         for port in (8001, 8002):
 
             try:
-                _LOGGER.debug("Try config with port: %s", str(port))
+                _LOGGER.info(
+                    "Try to configure SamsungTV %s using port %s",
+                    self._hostname,
+                    str(port),
+                )
+                token_file = get_token_file(self._hass, self._hostname, port, True)
                 with SamsungTVWS(
                     name=WS_PREFIX
                     + " "
                     + self._ws_name,  # this is the name shown in the TV list of external device.
                     host=self._hostname,
                     port=port,
-                    token_file=self._gen_token_file(port),
+                    token_file=token_file,
                     timeout=45,  # We need this high timeout because waiting for auth popup is just an open socket
                 ) as remote:
                     remote.open()
-                _LOGGER.debug("Working config with port: %s", str(port))
+                _LOGGER.info("Found working configuration using port %s", str(port))
                 self._port = port
                 return RESULT_SUCCESS
             except (OSError, ConnectionFailure, WebSocketException) as err:
-                _LOGGER.debug("Failing config with port: %s, error: %s", str(port), err)
+                _LOGGER.info("Configuration failed using port %s, error: %s", str(port), err)
 
+        _LOGGER.error("Web socket connection to SamsungTV %s failed", self._hostname)
         return RESULT_NOT_SUCCESSFUL
 
     async def _try_connect_st(self, api_key, device_id, session: ClientSession):
@@ -182,7 +230,7 @@ class SamsungTVInfo:
 
         try:
             with timeout(10):
-                _LOGGER.debug(
+                _LOGGER.info(
                     "Try connection to SmartThings TV with id [%s]", device_id
                 )
                 with SmartThingsTV(
@@ -190,17 +238,17 @@ class SamsungTVInfo:
                 ) as st:
                     result = await st.async_device_health()
                 if result:
-                    _LOGGER.debug("Connection completed successfully.")
+                    _LOGGER.info("Connection completed successfully.")
                     return RESULT_SUCCESS
                 else:
-                    _LOGGER.debug("Connection not available.")
+                    _LOGGER.error("Connection to SmartThings TV not available.")
                     return RESULT_ST_DEVICE_NOT_FOUND
         except ClientResponseError as err:
-            _LOGGER.debug("Failed connecting to SmartThings deviceID, error: %s", err)
+            _LOGGER.error("Failed connecting to SmartThings TV, error: %s", err)
             if err.status == 400:  # Bad request, means that token is valid
                 return RESULT_ST_DEVICE_NOT_FOUND
         except Exception as err:
-            _LOGGER.debug("Failed connecting with SmartThings, error: %s", err)
+            _LOGGER.error("Failed connecting with SmartThings, error: %s", err)
 
         return RESULT_WRONG_APIKEY
 
@@ -214,7 +262,7 @@ class SamsungTVInfo:
                     api_key, session, st_device_label
                 )
         except Exception as err:
-            _LOGGER.debug("Failed connecting with SmartThings, error: %s", err)
+            _LOGGER.error("Failed connecting with SmartThings, error: %s", err)
             return None
 
         return devices
@@ -266,20 +314,15 @@ async def async_setup(hass: HomeAssistantType, config: ConfigEntry):
     """Set up the Samsung TV integration."""
     if DOMAIN in config:
         hass.data[DOMAIN] = {}
+        entries_list = hass.config_entries.async_entries(DOMAIN)
         for entry_config in config[DOMAIN]:
 
             # get ip address
             ip_address = entry_config[CONF_HOST]
 
             # check if already configured
-            entry_found = False
-            entries_list = hass.config_entries.async_entries(DOMAIN)
-            for entry in entries_list:
-                if entry.unique_id == ip_address:
-                    entry_found = True
-                    break
-
-            if not entry_found:
+            valid_entries = [entry for entry in entries_list if entry.unique_id == ip_address]
+            if not valid_entries:
                 _LOGGER.warning(
                     "Found yaml configuration for not configured device %s. Please use UI to configure",
                     ip_address
@@ -297,6 +340,11 @@ async def async_setup(hass: HomeAssistantType, config: ConfigEntry):
 
 async def async_setup_entry(hass: HomeAssistantType, entry: ConfigEntry):
     """Set up the Samsung TV platform."""
+
+    # migrate old token file if required
+    _migrate_token_file(hass, entry.unique_id)
+
+    # setup entry
     hass.data.setdefault(DOMAIN, {}).setdefault(
         entry.unique_id, {}
     )  # unique_id = host
@@ -322,6 +370,7 @@ async def async_unload_entry(hass, config_entry):
     )
     for listener in hass.data[DOMAIN][config_entry.entry_id][DATA_LISTENER]:
         listener()
+    remove_token_file(hass, config_entry.unique_id)
     hass.data[DOMAIN].pop(config_entry.entry_id)
     hass.data[DOMAIN].pop(config_entry.unique_id)
     if not hass.data[DOMAIN]:

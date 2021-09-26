@@ -2,14 +2,15 @@
   "domain": "samsungtv_tizen",
   "name": "SamsungTV Tizen",
   "documentation": "https://github.com/jaruba/ha-samsungtv-tizen",
+  "issue_tracker": "https://github.com/jaruba/ha-samsungtv-tizen/issues",
   "requirements": [
-    "websocket-client==0.56.0",
-    "wakeonlan==1.1.6",
-    "numpy==1.19.2",
-    "aiofiles==0.6.0"
+    "websocket-client>=0.58.0",
+    "wakeonlan>=2.0.0",
+    "numpy>=1.19.2",
+    "aiofiles>=0.6.0"
   ],
   "dependencies": [],
-  "codeowners": ["@jaruba"],
-  "homeassistant": "0.99.3",
-  "config_flow": true
+  "codeowners": ["@jaruba", "@ollo69", "@screwdgeh"],
+  "config_flow": true,
+  "version": "2.0.0"
 }
