@@ -112,9 +112,9 @@ class SamsungTVWS:
         self.connection.send(payload)
 
         if key_press_delay is None:
-            time.sleep(self.key_press_delay)
+            task.sleep(self.key_press_delay)
         else:
-            time.sleep(key_press_delay)
+            task.sleep(key_press_delay)
 
     def _rest_request(self, target, method='GET'):
         url = self._format_rest_url(target)
@@ -194,7 +194,7 @@ class SamsungTVWS:
 
     def hold_key(self, key, seconds):
         self.send_key(key, cmd='Press')
-        time.sleep(seconds)
+        task.sleep(seconds)
         self.send_key(key, cmd='Release')
 
     def move_cursor(self, x, y, duration=0):
