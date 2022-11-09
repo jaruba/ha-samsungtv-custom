@@ -19,6 +19,7 @@ Copyright (C) 2019 Xchwarze
     Boston, MA  02110-1335  USA
 
 """
+import asyncio
 import base64
 import json
 import logging
