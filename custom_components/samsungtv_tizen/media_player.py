@@ -739,7 +739,7 @@ class SamsungTVDevice(MediaPlayerEntity):
         """Set the device class to TV."""
         return DEVICE_CLASS_TV
 
-    def turn_on(self):
+    async def turn_on(self):
         """Turn the media player on."""
         if self._power_off_in_progress():
             self._end_of_power_off = None 
@@ -752,11 +752,11 @@ class SamsungTVDevice(MediaPlayerEntity):
                 if self._broadcast:
                     for i in range(20):
                         wakeonlan.send_magic_packet(self._mac, ip_address=self._broadcast)
-                        time.sleep(0.25)
+                        await asyncio.sleep(0.25)
                 else:
                     for i in range(20):
                         wakeonlan.send_magic_packet(self._mac)
-                        time.sleep(0.25)
+                        await asyncio.sleep(0.25)
                 #Force Update as send command not called
                 self.update(no_throttle=True)
                 self.schedule_update_ha_state(True)
@@ -872,7 +872,7 @@ class SamsungTVDevice(MediaPlayerEntity):
                 else:
                     #Change to TV source before changing channel
                     self.hass.async_add_job(self._smartthings_keys, "ST_TV")
-                    time.sleep(5)
+                    await asyncio.sleep(5)
                     smartthings.device_update(self)
                     if self._cloud_channel != media_id:
                         await self.hass.async_add_job(self._smartthings_keys, f"ST_CH{media_id}")
@@ -889,7 +889,7 @@ class SamsungTVDevice(MediaPlayerEntity):
                         if source.lower() in ["tv", "live tv", "livetv"]:
                             found_source = True
                             await self.hass.async_add_job(self.async_select_source, source)
-                            time.sleep(2)
+                            await asyncio.sleep(2)
                             break
                     if found_source == False:
                         keychain = "KEY_EXIT+KEY_EXIT+{}".format(keychain)
@@ -911,13 +911,14 @@ class SamsungTVDevice(MediaPlayerEntity):
                 for this_key in all_source_keys:
                     if this_key.isdigit():
                         last_was_delay = True
-                        time.sleep(int(this_key)/1000)
+                        await asyncio.sleep(int(this_key)/1000)
+                        
                     else:
                         if this_key.startswith("ST_"):
                             await self.hass.async_add_job(self._smartthings_keys, this_key)
                         else:
                             if last_was_delay == False:
-                                time.sleep(DEFAULT_KEY_CHAIN_DELAY)
+                                await asyncio.sleep(DEFAULT_KEY_CHAIN_DELAY)
                             last_was_delay = False
                             self.hass.async_add_job(self.send_command, this_key)
             elif source_key.startswith("ST_"):
@@ -955,7 +956,7 @@ class SamsungTVDevice(MediaPlayerEntity):
                 all_source_keys = source_key.split("+")
                 for this_key in all_source_keys:
                     if this_key.isdigit():
-                        time.sleep(int(this_key)/1000)
+                        await asyncio.sleep(int(this_key)/1000)
                     else:
                         if this_key.startswith("ST_"):
                             await self.hass.async_add_job(self._smartthings_keys, this_key)
