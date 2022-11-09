@@ -19,6 +19,7 @@ Copyright (C) 2019 Xchwarze
     Boston, MA  02110-1335  USA
 
 """
+import asyncio
 import base64
 import json
 import logging
@@ -104,7 +105,7 @@ class SamsungTVWS:
         else:
             self.token = token
 
-    def _ws_send(self, command, key_press_delay=None):
+    async def _ws_send(self, command, key_press_delay=None):
         if self.connection is None:
             self.open()
 
@@ -112,9 +113,9 @@ class SamsungTVWS:
         self.connection.send(payload)
 
         if key_press_delay is None:
-            time.sleep(self.key_press_delay)
+            await asyncio.sleep(self.key_press_delay)
         else:
-            time.sleep(key_press_delay)
+            await asyncio.sleep(key_press_delay)
 
     def _rest_request(self, target, method='GET'):
         url = self._format_rest_url(target)
@@ -192,9 +193,9 @@ class SamsungTVWS:
             key_press_delay
         )
 
-    def hold_key(self, key, seconds):
+    async def hold_key(self, key, seconds):
         self.send_key(key, cmd='Press')
-        time.sleep(seconds)
+        await asyncio.sleep(seconds)
         self.send_key(key, cmd='Release')
 
     def move_cursor(self, x, y, duration=0):
