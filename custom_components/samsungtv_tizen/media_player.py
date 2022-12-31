@@ -853,6 +853,26 @@ class SamsungTVDevice(MediaPlayerEntity):
         else:
             self.hass.async_add_job(self.send_command, "KEY_REWIND")
 
+    async def async_execute_key(self, source_key):
+        if "+" in source_key:
+            all_source_keys = source_key.split("+")
+            last_was_delay = True
+            for this_key in all_source_keys:
+                if this_key.isdigit():
+                    last_was_delay = True
+                    await asyncio.sleep(int(this_key)/1000)
+                else:
+                    if this_key.startswith("ST_"):
+                        await self.hass.async_add_job(self._smartthings_keys, this_key)
+                    else:
+                        if last_was_delay == False:
+                            await asyncio.sleep(DEFAULT_KEY_CHAIN_DELAY)
+                        last_was_delay = False
+                        self.hass.async_add_job(self.send_command, this_key)
+        elif source_key.startswith("ST_"):
+            self.hass.async_add_job(self._smartthings_keys, source_key)
+        else:
+            self.hass.async_add_job(self.send_command, source_key)
 
     async def async_play_media(self, media_type, media_id, **kwargs):
         # Type channel
@@ -904,26 +924,7 @@ class SamsungTVDevice(MediaPlayerEntity):
             except vol.Invalid:
                 _LOGGER.error('Media ID must be a string (ex: "KEY_HOME"')
                 return
-            source_key = media_id
-            if "+" in source_key:
-                all_source_keys = source_key.split("+")
-                last_was_delay = True
-                for this_key in all_source_keys:
-                    if this_key.isdigit():
-                        last_was_delay = True
-                        time.sleep(int(this_key)/1000)
-                    else:
-                        if this_key.startswith("ST_"):
-                            await self.hass.async_add_job(self._smartthings_keys, this_key)
-                        else:
-                            if last_was_delay == False:
-                                time.sleep(DEFAULT_KEY_CHAIN_DELAY)
-                            last_was_delay = False
-                            self.hass.async_add_job(self.send_command, this_key)
-            elif source_key.startswith("ST_"):
-                self.hass.async_add_job(self._smartthings_keys, source_key)
-            else:
-                self.hass.async_add_job(self.send_command, source_key)
+            await self.async_execute_key(media_id)
         # Play media
         elif media_type == MEDIA_TYPE_URL:
             try:
@@ -950,21 +951,7 @@ class SamsungTVDevice(MediaPlayerEntity):
         """Select input source."""
         _LOGGER.debug('SamsungTV Trying source:%s',source)
         if source in self._source_list:
-            source_key = self._source_list[ source ]
-            if "+" in source_key:
-                all_source_keys = source_key.split("+")
-                for this_key in all_source_keys:
-                    if this_key.isdigit():
-                        time.sleep(int(this_key)/1000)
-                    else:
-                        if this_key.startswith("ST_"):
-                            await self.hass.async_add_job(self._smartthings_keys, this_key)
-                        else:
-                            await self.hass.async_add_job(self.send_command, this_key)
-            elif source_key.startswith("ST_"):
-                await self.hass.async_add_job(self._smartthings_keys, source_key)
-            else:
-                await self.hass.async_add_job(self.send_command, self._source_list[ source ])
+            await self.async_execute_key(self._source_list[ source ])
         elif source in self._app_list:
             source_key = self._app_list[ source ]
             await self.hass.async_add_job(self.send_command, source_key, "run_app")
