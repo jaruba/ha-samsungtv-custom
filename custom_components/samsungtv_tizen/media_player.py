@@ -61,12 +61,14 @@ _LOGGER = logging.getLogger(__name__)
 
 CONF_SHOW_CHANNEL_NR = "show_channel_number"
 
+DEFAULT_UUID = ""
 DEFAULT_NAME = "Samsung TV Remote"
 DEFAULT_PORT = 8002
 DEFAULT_TIMEOUT = 3
 DEFAULT_KEY_CHAIN_DELAY = 1.25
 DEFAULT_UPDATE_METHOD = "ping"
 DEFAULT_SOURCE_LIST = '{"TV": "KEY_TV", "HDMI": "KEY_HDMI"}'
+CONF_UUID = "unique_id"
 CONF_UPDATE_METHOD = "update_method"
 CONF_UPDATE_CUSTOM_PING_URL = "update_custom_ping_url"
 CONF_SOURCE_LIST = "source_list"
@@ -109,6 +111,7 @@ SUPPORT_SAMSUNGTV = (
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_HOST): cv.string,
+        vol.Optional(CONF_UUID, default=DEFAULT_UUID): cv.string,
         vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
         vol.Optional(CONF_PORT, default=DEFAULT_PORT): cv.port,
         vol.Optional(CONF_MAC): cv.string,
@@ -164,6 +167,9 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         scan_app_http = config.get(CONF_SCAN_APP_HTTP)
         is_frame_tv = config.get(CONF_IS_FRAME_TV)
         show_logos = config.get(CONF_SHOW_LOGOS)
+        uuid = config.get(CONF_UUID)
+        if uuid  == "" :
+            uuid = None
     elif discovery_info is not None:
         tv_name = discovery_info.get("name")
         model = discovery_info.get("model_name")
